@@ -53,16 +53,27 @@ jobs:
           pod install
           cd ..
 
-      # --no-codesign 生成「未签名」IPA（可用于 AltStore 侧载，或在你 Mac 上用 Xcode 重新签名）
-      # 若要直接出「已签名」可上架/真机安装的 IPA，见下方「签名说明」
-      - name: Build iOS IPA (unsigned)
-        run: flutter build ipa --release --no-codesign
+      # 关键：Flutter 3.0.0 的 `build ipa` 不支持 --no-codesign（该 flag 只存在于 `build ios`），
+      # 因此先构建「未签名」的 Runner.app，再按标准 IPA 结构打包：Payload/*.app + zip
+      # 产物可用于 AltStore/Sideloadly 侧载，或在你的 Mac 上用 Xcode 重新签名
+      - name: Build iOS app bundle (unsigned)
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        run: |
+          APP="build/ios/iphoneos/Runner.app"
+          ls -ld "$APP"
+          rm -rf Payload Runner.ipa
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry Runner.ipa Payload
+          ls -lh Runner.ipa
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
-          path: build/ios/ipa/*.ipa
+          path: Runner.ipa
           if-no-files-found: error
 
       # ===== 可选：已签名出包（需在本仓库 Settings → Secrets 配置）=====
