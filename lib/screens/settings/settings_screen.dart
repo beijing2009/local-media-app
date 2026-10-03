@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/scan_notifier.dart';
 import '../../services/database_service.dart';
+import '../../app_version.dart';
+import '../tools/m3u8_merge_screen.dart';
 
 /// 功能区 / 设置：外观切换、扫描目录管理、进度清理。
 class SettingsScreen extends StatefulWidget {
@@ -126,12 +128,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const Divider(height: 32),
 
+          // ---------------- 工具 ----------------
+          const Text('本地工具',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          const Text('合并本机已缓存的 M3U8 + TS 分片为一个视频；合并结果会在视频区出现。',
+              style: TextStyle(color: Colors.grey, fontSize: 12)),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const M3u8MergeScreen(),
+              ));
+            },
+            icon: const Icon(Icons.merge_type),
+            label: const Text('M3U8 / TS 批量合并'),
+          ),
+          const Divider(height: 32),
+
           // ---------------- 关于 ----------------
           const Text('关于', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          const Text(
-            '本地影音 v1.0\n纯本地运行：不联网、不上传，所有数据仅存于本机。',
-            style: TextStyle(color: Colors.grey, fontSize: 13),
+          Text(
+            '${AppVersion.label}\n发布于 ${AppVersion.date}\n'
+            '纯本地运行：不联网、不上传，所有数据仅存于本机。',
+            style: const TextStyle(color: Colors.grey, fontSize: 13),
           ),
         ],
       ),

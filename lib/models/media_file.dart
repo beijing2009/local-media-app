@@ -45,9 +45,10 @@ class MediaFile {
 
 enum MediaType { video, audio }
 
-/// 按需求主支持 mp4 / mp3 / m4a 三类。
+/// 按需求主支持 mp4 / mp3 / m4a 三类；
+/// 另支持 ts：M3U8 合并输出的 MPEG-TS 文件，可被原生播放器播放。
 class SupportedFormats {
-  static const Set<String> video = {'mp4'};
+  static const Set<String> video = {'mp4', 'ts'};
   static const Set<String> audio = {'mp3', 'm4a'};
 
   static bool isVideo(String ext) => video.contains(ext.toLowerCase());
