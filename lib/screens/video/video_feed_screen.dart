@@ -6,6 +6,8 @@ import '../../models/media_file.dart';
 import '../../services/file_scanner.dart';
 import '../../services/database_service.dart';
 import '../../services/permission_service.dart';
+import '../../services/auto_scanner.dart';
+import '../../widgets/full_scan_dialog.dart';
 import '../../providers/scan_notifier.dart';
 import 'video_page.dart';
 import '../file_browser_screen.dart';
@@ -84,6 +86,52 @@ class _VideoFeedScreenState extends State<VideoFeedScreen> {
   List<MediaFile> get _filtered =>
       FileScanner.filterByName(_videos, _search.text);
 
+  /// 全盘扫描（仅安卓）：遍历整个存储根，把找到的 mp4/ts 视频自动导入，
+  /// 复用「批量导入」管线，避免污染手动添加的扫描目录配置。
+  Future<void> _fullScan() async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (!AutoScanner.isAndroid) return;
+    final ok = await PermissionService.requestStorage();
+    if (!ok) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('需要「所有文件访问」权限才能扫描全盘'),
+        action: SnackBarAction(
+            label: '去设置', onPressed: PermissionService.openSettings),
+      ));
+      return;
+    }
+    final dirs = ValueNotifier<int>(0);
+    final found = ValueNotifier<int>(0);
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => FullScanDialog(dirs: dirs, found: found),
+    );
+    List<MediaFile> media = const <MediaFile>[];
+    try {
+      media = await AutoScanner.scanMedia(
+        onProgress: (d, f) {
+          dirs.value = d;
+          found.value = f;
+        },
+      );
+    } catch (_) {}
+    if (mounted) Navigator.of(context, rootNavigator: true).pop();
+
+    final videos =
+        media.where((m) => m.type == MediaType.video).map((m) => m.path).toList();
+    if (videos.isEmpty) {
+      messenger.showSnackBar(const SnackBar(content: Text('全盘未找到 mp4 / ts 视频')));
+      return;
+    }
+    final added = await DatabaseService.instance.addImportedPaths(videos);
+    await _loadFromRoots();
+    messenger.showSnackBar(SnackBar(
+      content: Text('已导入 $added 个视频（可在「批量导入」里管理）'),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered;
@@ -117,6 +165,12 @@ class _VideoFeedScreenState extends State<VideoFeedScreen> {
             tooltip: '重新扫描',
             onPressed: _loadFromRoots,
           ),
+          if (AutoScanner.isAndroid)
+            IconButton(
+              icon: const Icon(Icons.storage),
+              tooltip: '全盘扫描',
+              onPressed: _fullScan,
+            ),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(52),

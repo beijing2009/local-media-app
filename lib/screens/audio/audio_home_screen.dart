@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
@@ -5,6 +6,9 @@ import '../../models/album.dart';
 import '../../models/media_file.dart';
 import '../../services/file_scanner.dart';
 import '../../services/database_service.dart';
+import '../../services/auto_scanner.dart';
+import '../../services/permission_service.dart';
+import '../../widgets/full_scan_dialog.dart';
 import 'album_detail_screen.dart';
 import 'now_playing_bar.dart';
 
@@ -80,6 +84,92 @@ class _AudioHomeScreenState extends State<AudioHomeScreen> {
     _load();
   }
 
+  /// 全盘扫描（仅安卓）：遍历整个存储根，按目录结构自动把音频归并为专辑。
+  ///
+  /// 分组规则：取存储根下的「一级/二级目录」作为专辑名，例如
+  /// `/Music/古典/1.mp3` → 专辑「Music/古典」。避免把全盘音频平铺成一坨。
+  Future<void> _fullScanAudio() async {
+    if (!AutoScanner.isAndroid) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await PermissionService.requestStorage();
+    if (!ok) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('需要「所有文件访问」权限才能扫描全盘'),
+        action: SnackBarAction(
+            label: '去设置', onPressed: PermissionService.openSettings),
+      ));
+      return;
+    }
+    final dirs = ValueNotifier<int>(0);
+    final found = ValueNotifier<int>(0);
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => FullScanDialog(dirs: dirs, found: found),
+    );
+    List<MediaFile> media = const <MediaFile>[];
+    try {
+      media = await AutoScanner.scanMedia(
+        onProgress: (d, f) {
+          dirs.value = d;
+          found.value = f;
+        },
+      );
+    } catch (_) {}
+    if (mounted) Navigator.of(context, rootNavigator: true).pop();
+
+    final audios =
+        media.where((m) => m.type == MediaType.audio).toList();
+    if (audios.isEmpty) {
+      messenger.showSnackBar(const SnackBar(content: Text('全盘未找到 mp3 / m4a 音频')));
+      return;
+    }
+    if (audios.length > 5000) {
+      messenger.showSnackBar(SnackBar(
+        content: Text('发现音频过多（${audios.length} 个），请用「从文件夹新建」'),
+      ));
+      return;
+    }
+
+    final root = AutoScanner.androidStorageRoots
+        .firstWhere((r) => Directory(r).existsSync(),
+            orElse: () => AutoScanner.androidStorageRoots.first);
+    final groups = <String, List<String>>{};
+    for (final a in audios) {
+      final rel = p.relative(a.path, from: root);
+      final parts = rel.split(Platform.pathSeparator);
+      final key = parts.length > 2
+          ? '${parts[0]}/${parts[1]}'
+          : (parts.length > 1 ? parts[0] : p.basename(p.dirname(a.path)));
+      groups.putIfAbsent(key, () => <String>[]).add(a.path);
+    }
+    if (groups.length > 300) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('目录过多，请改用「从文件夹新建」逐个导入'),
+      ));
+      return;
+    }
+
+    final now = DateTime.now();
+    for (var i = 0; i < groups.length; i++) {
+      final entry = groups.entries.elementAt(i);
+      final paths = entry.value..sort();
+      final album = Album(
+        id: '${now.millisecondsSinceEpoch}_$i',
+        name: entry.key,
+        description: '全盘扫描自动导入',
+        episodePaths: paths,
+        createdAt: now,
+      );
+      await DatabaseService.instance.insertAlbum(album);
+    }
+    _load();
+    messenger.showSnackBar(SnackBar(
+      content: Text('已建立 ${groups.length} 个专辑，共 ${audios.length} 个音频'),
+    ));
+  }
+
   /// 弹窗输入专辑名称与简介。
   Future<_AlbumInfo?> _askAlbumInfo({required String defaultName}) async {
     final nameCtl = TextEditingController(text: defaultName);
@@ -136,10 +226,13 @@ class _AudioHomeScreenState extends State<AudioHomeScreen> {
             onSelected: (v) {
               if (v == 'files') _createFromFiles();
               if (v == 'folder') _createFromFolder();
+              if (v == 'full') _fullScanAudio();
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'files', child: Text('从音频文件新建')),
-              PopupMenuItem(value: 'folder', child: Text('从文件夹新建')),
+            itemBuilder: (_) => <PopupMenuEntry<String>>[
+              const PopupMenuItem(value: 'files', child: Text('从音频文件新建')),
+              const PopupMenuItem(value: 'folder', child: Text('从文件夹新建')),
+              if (AutoScanner.isAndroid)
+                const PopupMenuItem(value: 'full', child: Text('全盘扫描')),
             ],
             icon: const Icon(Icons.add),
           ),

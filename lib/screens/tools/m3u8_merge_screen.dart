@@ -3,6 +3,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import '../../services/m3u8_service.dart';
 import '../../services/database_service.dart';
+import '../../services/auto_scanner.dart';
+import '../../services/permission_service.dart';
+import '../../widgets/full_scan_dialog.dart';
 import '../../providers/scan_notifier.dart';
 
 /// M3U8 + TS 合并工具（纯本地）。
@@ -71,6 +74,69 @@ class _M3u8MergeScreenState extends State<M3u8MergeScreen> {
       _loading = false;
     });
     messenger.showSnackBar(SnackBar(content: Text('已扫描目录：$dir')));
+  }
+
+  /// 全盘扫描：遍历整个存储根，找出所有 .m3u8（含多码率主列表与加密列表）。
+  /// 仅安卓：iOS 受沙盒限制，保持「指定目录扫描」即可。
+  Future<void> _scanAll() async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (!AutoScanner.isAndroid) return;
+    final ok = await PermissionService.requestStorage();
+    if (!ok) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('需要「所有文件访问」权限才能扫描全盘'),
+        action: SnackBarAction(
+            label: '去设置', onPressed: PermissionService.openSettings),
+      ));
+      return;
+    }
+    final dirs = ValueNotifier<int>(0);
+    final found = ValueNotifier<int>(0);
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => FullScanDialog(dirs: dirs, found: found),
+    );
+    List<String> paths = const <String>[];
+    try {
+      paths = await AutoScanner.scanM3u8(
+        onProgress: (d, f) {
+          dirs.value = d;
+          found.value = f;
+        },
+      );
+    } catch (_) {}
+    if (mounted) Navigator.of(context, rootNavigator: true).pop();
+
+    final infos = paths
+        .map((p) {
+          try {
+            return M3u8Service.parse(p);
+          } catch (_) {
+            return null;
+          }
+        })
+        .whereType<M3u8Info>()
+        .toList();
+
+    if (!mounted) return;
+    setState(() {
+      final merged = <String, M3u8Info>{for (final i in _infos) i.path: i};
+      for (final i in infos) {
+        merged.putIfAbsent(i.path, () => i);
+      }
+      _infos = merged.values.toList();
+      _loading = false;
+    });
+    if (infos.isEmpty) {
+      messenger.showSnackBar(const SnackBar(content: Text('全盘未找到 .m3u8 播放列表')));
+    } else {
+      messenger.showSnackBar(SnackBar(
+        content: Text('全盘找到 ${infos.length} 个播放列表'
+            '（可合并的已可勾选，其余会在列表中标明原因）'),
+      ));
+    }
   }
 
   Future<void> _pickOutputDir() async {
@@ -162,6 +228,12 @@ class _M3u8MergeScreenState extends State<M3u8MergeScreen> {
       appBar: AppBar(
         title: const Text('M3U8 合并'),
         actions: [
+          if (AutoScanner.isAndroid)
+            IconButton(
+              icon: const Icon(Icons.storage),
+              tooltip: '扫描所有目录',
+              onPressed: _scanAll,
+            ),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: '重新扫描',
@@ -253,6 +325,14 @@ class _M3u8MergeScreenState extends State<M3u8MergeScreen> {
                 label: const Text('指定目录扫描'),
                 onPressed: _scanPickedDir,
               ),
+              if (AutoScanner.isAndroid) ...[
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.storage, size: 18),
+                  label: const Text('扫描所有目录'),
+                  onPressed: _scanAll,
+                ),
+              ],
             ],
           ),
         ],

@@ -18,6 +18,22 @@
 
 ---
 
+## 一·五、版本号（每次出包必须核对）
+
+版本号定义在 **`lib/app_version.dart`**，必须与 `pubspec.yaml` 的 `version` 保持一致，并在 `CHANGELOG.md` 登记：
+
+```dart
+static const String name = '1.1.1';  // 版本名
+static const int code = 3;           // 构建号，必须单调自增
+```
+
+对应关系：`pubspec.yaml` → `version: 1.1.1+3`，设置页「关于」会展示 `v1.1.1 (build 3)`。
+
+> ⚠️ **出包前必做**：改代码 → 改 `AppVersion.name/code/date` → 改 `pubspec.yaml` 的 `version` → 在 `CHANGELOG.md` 登记。
+> `code` 不递增会导致 iOS/Android 判定为「未升级」而无法覆盖安装。
+
+---
+
 ## 二、方式 A：用 GitHub 云端 macOS 出包（推荐，无需自备 Mac）
 
 1. 把本项目推送到一个 GitHub 仓库（公开仓库可用免费 macOS 额度）。
