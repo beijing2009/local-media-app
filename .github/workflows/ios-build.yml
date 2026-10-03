@@ -9,15 +9,18 @@ on:
 
 jobs:
   build-ios:
-    runs-on: macos-latest
+    # 固定 macos-13：自带 Xcode 14.3.1，与 Flutter 3.0.0 兼容性最佳
+    # （macos-latest 的 Xcode 16 与 2022 年的 Flutter 3.0 不兼容，会构建失败）
+    runs-on: macos-13
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Accept Xcode license & select Xcode
+      - name: Accept Xcode license & select Xcode 14.3.1
         run: |
           sudo xcodebuild -license accept
-          sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+          sudo xcode-select --switch /Applications/Xcode_14.3.1.app/Contents/Developer
+          xcodebuild -version
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
