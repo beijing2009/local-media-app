@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import '../../models/media_file.dart';
 import '../../services/file_scanner.dart';
@@ -7,6 +9,7 @@ import '../../services/permission_service.dart';
 import '../../providers/scan_notifier.dart';
 import 'video_page.dart';
 import '../file_browser_screen.dart';
+import '../import/import_center_screen.dart';
 
 /// 视频区：抖音风格上下滑动浏览（仅处理 mp4 视频）。
 class VideoFeedScreen extends StatefulWidget {
@@ -53,6 +56,20 @@ class _VideoFeedScreenState extends State<VideoFeedScreen> {
     for (final root in roots) {
       all.addAll(FileScanner.scanRecursive(root));
     }
+    // 合并「导入中心」额外加入的单个视频文件（支持批量导入的文件）
+    final imported = await DatabaseService.instance.getImportedPaths();
+    for (final path in imported) {
+      final file = File(path);
+      if (!file.existsSync()) continue;
+      final ext = p.extension(path).toLowerCase().replaceAll('.', '');
+      if (!SupportedFormats.isVideo(ext)) continue;
+      all.add(MediaFile(
+        path: path,
+        name: p.basename(path),
+        type: MediaType.video,
+        sizeBytes: file.lengthSync(),
+      ));
+    }
     // 仅保留视频并去重排序
     final videos = FileScanner.dedupeAndSort(
         all.where((m) => m.type == MediaType.video).toList());
@@ -74,6 +91,16 @@ class _VideoFeedScreenState extends State<VideoFeedScreen> {
       appBar: AppBar(
         title: const Text('视频区'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.downloading_outlined),
+            tooltip: '批量导入视频',
+            onPressed: () async {
+              await Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const ImportCenterScreen(),
+              ));
+              _loadFromRoots();
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.folder_open),
             tooltip: '浏览文件夹',
@@ -126,18 +153,33 @@ class _VideoFeedScreenState extends State<VideoFeedScreen> {
             const SizedBox(height: 12),
             const Text('暂无视频'),
             const SizedBox(height: 4),
-            const Text('请先在「功能区」添加包含 mp4 的扫描目录',
+            const Text('点右上角「批量导入」加入本机视频，或添加扫描目录',
                 style: TextStyle(color: Colors.grey, fontSize: 12)),
             const SizedBox(height: 8),
-            ElevatedButton(
-              onPressed: () async {
-                await Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) =>
-                      const FileBrowserScreen(mediaType: MediaType.video),
-                ));
-                _loadFromRoots();
-              },
-              child: const Text('去添加目录'),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ElevatedButton(
+                  onPressed: () async {
+                    await Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const ImportCenterScreen(),
+                    ));
+                    _loadFromRoots();
+                  },
+                  child: const Text('批量导入'),
+                ),
+                const SizedBox(width: 10),
+                OutlinedButton(
+                  onPressed: () async {
+                    await Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) =>
+                          const FileBrowserScreen(mediaType: MediaType.video),
+                    ));
+                    _loadFromRoots();
+                  },
+                  child: const Text('添加目录'),
+                ),
+              ],
             ),
           ],
         ),

@@ -22,7 +22,7 @@ class DatabaseService {
   Future<Database> get db async {
     _db ??= await openDatabase(
       p.join(await getDatabasesPath(), 'local_media.db'),
-      version: 1,
+      version: 2,
       onCreate: (database, version) async {
         await database.execute('''
           CREATE TABLE kv (
@@ -40,6 +40,24 @@ class DatabaseService {
             created_at INTEGER
           )
         ''');
+        // 显式导入的视频文件清单（支持批量加入 / 批量移除）
+        await database.execute('''
+          CREATE TABLE imported_files (
+            path TEXT PRIMARY KEY,
+            added_at INTEGER
+          )
+        ''');
+      },
+      // v1 -> v2：仅新增导入清单表，老用户的播放进度、专辑数据完全不受影响
+      onUpgrade: (database, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await database.execute('''
+            CREATE TABLE IF NOT EXISTS imported_files (
+              path TEXT PRIMARY KEY,
+              added_at INTEGER
+            )
+          ''');
+        }
       },
     );
     return _db!;
@@ -98,6 +116,51 @@ class DatabaseService {
 
   Future<void> setScanRoots(List<String> roots) async {
     await setKv('scan_roots', roots.join('\u0001'));
+  }
+
+  // ---------------- 显式导入文件（支持批量） ----------------
+  /// 取出所有被显式导入的文件路径（按导入时间倒序）。
+  Future<List<String>> getImportedPaths() async {
+    final rows = await (await db)
+        .query('imported_files', orderBy: 'added_at DESC');
+    return rows.map((r) => r['path'] as String).toList();
+  }
+
+  /// 批量加入导入清单（同一事务，避免中途失败导致半写入）。
+  Future<int> addImportedPaths(List<String> paths) async {
+    final database = await db;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    int added = 0;
+    await database.transaction((txn) async {
+      for (final path in paths) {
+        final id = await txn.insert(
+          'imported_files',
+          {'path': path, 'added_at': now},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+        if (id > 0) added++;
+      }
+    });
+    return added;
+  }
+
+  /// 批量从导入清单移除。
+  Future<int> removeImportedPaths(List<String> paths) async {
+    final database = await db;
+    int removed = 0;
+    await database.transaction((txn) async {
+      for (final path in paths) {
+        final n = await txn.delete('imported_files',
+            where: 'path = ?', whereArgs: [path]);
+        removed += n;
+      }
+    });
+    return removed;
+  }
+
+  /// 一键清空导入清单。
+  Future<void> clearImportedPaths() async {
+    await (await db).delete('imported_files');
   }
 
   // ---------------- 专辑（听书管理） ----------------
