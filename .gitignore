@@ -1,0 +1,32 @@
+# 构建产物
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+build/
+*.iml
+.idea/
+
+# 本地签名配置（切勿提交密钥）
+android/key.properties
+**/upload-keystore.jks
+**/*.jks
+
+# 本地设置
+android/local.properties
+
+# iOS / CocoaPods（Pods 由 pod install 生成，不入库）
+**/ios/**/Pods/
+**/ios/**/Generated.xcconfig
+**/ios/**/Flutter/Flutter.framework/
+**/ios/**/.symlinks/
+**/ios/**/Pods.local
+**/ios/**/Flutter/Flutter.podspec
+**/ios/**/xcuserdata/
+**/ios/**/Runner.xcworkspace/xcuserdata/
+**/ios/**/*.mode1v3
+**/ios/**/*.mode2v3
+**/ios/**/*.moved-aside
+**/ios/**/*.pbxuser
+**/ios/**/*.perspectivev3

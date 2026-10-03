@@ -1,0 +1,31 @@
+name: local_media_app
+description: 本地音视频播放器（安卓 + iOS），纯本地运行，不依赖云端，轻量流畅。
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  # Flutter 3.0.0 对应 Dart 2.17
+  sdk: ">=2.17.0 <3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 极简依赖，仅保留必要功能库，避免大体积 UI 框架
+  provider: ^6.0.0          # 轻量状态管理（仅 ~数十 KB）
+  video_player: ^2.4.0     # 原生视频播放（底层为 ExoPlayer / AVPlayer）
+  audioplayers: ^1.1.1     # 轻量音频播放，支持倍速/后台
+  sqflite: ^2.0.0          # 本地 SQLite，存储播放进度与专辑
+  shared_preferences: ^2.0.0 # 本地外观设置
+  permission_handler: ^9.0.0 # 安卓存储权限申请
+  file_picker: ^4.6.1      # 文件夹/文件选取（安卓+iOS 通用）
+  path: ^1.8.0             # 路径解析（basename/extension）
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+  # 无任何图片资源，使用内置矢量图标，最大限度压缩包体

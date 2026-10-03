@@ -1,0 +1,65 @@
+name: Build iOS IPA
+
+# 在 GitHub 的 macOS runner 上自动构建 iOS 安装包（无需你自备 Mac）
+# 触发：推送到 main 分支，或手动在 Actions 页面点击 Run workflow
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Accept Xcode license & select Xcode
+        run: |
+          sudo xcodebuild -license accept
+          sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.0.0'
+          channel: 'stable'
+
+      - name: Flutter doctor (信息)
+        run: flutter doctor -v
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Install CocoaPods dependencies
+        run: |
+          cd ios
+          pod install --repo-update
+          cd ..
+
+      # --no-codesign 生成「未签名」IPA（可用于 AltStore 侧载，或在你 Mac 上用 Xcode 重新签名）
+      # 若要直接出「已签名」可上架/真机安装的 IPA，见下方「签名说明」
+      - name: Build iOS IPA (unsigned)
+        run: flutter build ipa --release --no-codesign
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
+
+      # ===== 可选：已签名出包（需在本仓库 Settings → Secrets 配置）=====
+      # 1) 把发布证书与描述文件导出为 base64，存入仓库 Secrets：
+      #    P12_BASE64、P12_PASSWORD、PROVISIONING_PROFILE_BASE64
+      # 2) 取消注释下面的步骤，并去掉上面的 --no-codesign
+      # - name: Import signing certificate
+      #   run: |
+      #     echo "${{ secrets.P12_BASE64 }}" | base64 --decode > cert.p12
+      #     security create-keychain -p "" build.keychain
+      #     security import cert.p12 -k build.keychain -P "${{ secrets.P12_PASSWORD }}" -T /usr/bin/codesign
+      #     echo "${{ secrets.PROVISIONING_PROFILE_BASE64 }}" | base64 --decode > profile.mobileprovision
+      #     mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+      #     cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+      # - name: Build iOS IPA (signed)
+      #   run: flutter build ipa --release

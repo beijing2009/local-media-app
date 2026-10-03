@@ -1,0 +1,8 @@
+include: package:flutter_lints/flutter.yaml
+
+# 仅把“错误”视为阻断，避免严苛 lint 影响本地构建
+analyzer:
+  errors:
+    invalid_annotation_target: ignore
+  exclude:
+    - "**/*.g.dart"
