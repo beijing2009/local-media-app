@@ -9,17 +9,16 @@ on:
 
 jobs:
   build-ios:
-    # 固定 macos-13：自带 Xcode 14.3.1，与 Flutter 3.0.0 兼容性最佳
-    # （macos-latest 的 Xcode 16 与 2022 年的 Flutter 3.0 不兼容，会构建失败）
-    runs-on: macos-13
+    # 必须用 macos-latest：macos-13 镜像已被 GitHub 下线，请求该标签会永远排队
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Accept Xcode license & select Xcode 14.3.1
+      - name: Accept Xcode license & select Xcode
         run: |
           sudo xcodebuild -license accept
-          sudo xcode-select --switch /Applications/Xcode_14.3.1.app/Contents/Developer
+          sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
           xcodebuild -version
 
       - name: Setup Flutter
@@ -34,10 +33,24 @@ jobs:
       - name: Install Flutter dependencies
         run: flutter pub get
 
+      - name: Patch Flutter Ruby helpers (File.exists? -> File.exist?)
+        # 关键：Flutter 3.0.0 的 iOS 辅助脚本用了 File.exists?，而 Ruby 3.x 已移除该方法，
+        # 会导致 `pod install` 直接报 "undefined method 'exists?' for class File" 而失败。
+        # 这里在 pod install 前把 Flutter 工具里的写法改为 Ruby 3 的 File.exist?。
+        run: |
+          echo "FLUTTER_ROOT=$FLUTTER_ROOT"
+          TARGET="$FLUTTER_ROOT/packages/flutter_tools"
+          grep -rl "File\.exists?" "$TARGET" 2>/dev/null | while read -r f; do
+            echo "patching: $f"
+            sed -i '' 's/File\.exists?/File.exist?/g' "$f"
+          done
+          echo "补丁完成，校验是否还有残留："
+          grep -rn "File\.exists?" "$TARGET" 2>/dev/null | head || echo "无残留 OK"
+
       - name: Install CocoaPods dependencies
         run: |
           cd ios
-          pod install --repo-update
+          pod install
           cd ..
 
       # --no-codesign 生成「未签名」IPA（可用于 AltStore 侧载，或在你 Mac 上用 Xcode 重新签名）
