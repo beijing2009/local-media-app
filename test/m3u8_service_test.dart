@@ -200,6 +200,8 @@ void main() {
           'seg0.ts\n');
     final info = M3u8Service.parse(m3u.path);
     expect(info.unreadable, true);
+    // 密钥地址必须被记录，供 UI 展示「复制地址 → 手动下载补齐」流程
+    expect(info.keyUri, 'https://cdn.example.com/k.key');
   });
 
   test('⑧ 按时间自动命名：文件名形如 merged_YYYYMMDD_HHMMSS.ts', () async {

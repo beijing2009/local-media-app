@@ -30,6 +30,7 @@ class M3u8Info {
   final List<M3u8Segment> segments;
   final String method; // NONE / AES-128 / 其它加密标记
   final bool unreadable; // 需要 DRM 或无法纯本地处理
+  final String? keyUri; // AES-128 但本机缺密钥文件时，记录密钥 URI 供用户手动补齐
   final int totalBytes;
 
   const M3u8Info({
@@ -39,6 +40,7 @@ class M3u8Info {
     required this.segments,
     required this.method,
     required this.unreadable,
+    this.keyUri,
     required this.totalBytes,
   });
 
@@ -140,6 +142,7 @@ class M3u8Service {
     bool isMaster = false;
     String method = 'NONE';
     bool unreadable = false;
+    String? unresolvedKeyUri;
 
     String? curKeyPath;
     String? curIvHex;
@@ -193,6 +196,7 @@ class M3u8Service {
           if (localKey == null) {
             method = '$m（本机无密钥文件）';
             unreadable = true;
+            unresolvedKeyUri = uri; // 记录地址，供 UI 展示，用户可手动下载补齐
             curKeyPath = null;
             curIvHex = null;
             continue;
@@ -233,6 +237,7 @@ class M3u8Service {
       segments: segments,
       method: method,
       unreadable: unreadable,
+      keyUri: unresolvedKeyUri,
       totalBytes: bytes,
     );
   }

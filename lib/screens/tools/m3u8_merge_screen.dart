@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import '../../services/m3u8_service.dart';
@@ -372,8 +373,11 @@ class _M3u8MergeScreenState extends State<M3u8MergeScreen> {
     final can = _canSelect(info);
     final selected = _selected.contains(info.path);
     String sub;
+    final bool missingKey = info.unreadable && (info.keyUri?.isNotEmpty ?? false);
     if (info.isMaster) {
       sub = '多码率主列表，无直接分片';
+    } else if (missingKey) {
+      sub = 'AES-128 加密 · 缺密钥文件（点按此处查看密钥地址与解决步骤）';
     } else if (info.unreadable) {
       sub = '加密方式不支持（${info.method}）：需 DRM 或超纲';
     } else {
@@ -400,7 +404,72 @@ class _M3u8MergeScreenState extends State<M3u8MergeScreen> {
               : (info.encrypted ? Icons.lock_open : Icons.movie_outlined),
         ),
         title: Text(info.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Text(sub, maxLines: 2, overflow: TextOverflow.ellipsis),
+        subtitle: missingKey
+            ? GestureDetector(
+                onTap: () => _showKeyHelp(info),
+                child: Text(sub,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary)),
+              )
+            : Text(sub, maxLines: 2, overflow: TextOverflow.ellipsis),
+      ),
+    );
+  }
+
+  /// 缺密钥帮助：展示密钥地址 + 复制 + 手动补齐步骤（App 本身绝不联网拉取）。
+  void _showKeyHelp(M3u8Info info) {
+    final messenger = ScaffoldMessenger.of(context);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('缺少密钥文件'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('该列表为 AES-128 加密，但解密密钥没有保存在本机。'
+                  '为遵守「纯本地、不联网」，App 不会自动下载密钥；'
+                  '请按以下步骤手动补齐：'),
+              const SizedBox(height: 12),
+              const Text('① 复制下方密钥地址：'),
+              const SizedBox(height: 4),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Theme.of(ctx).dividerColor.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: SelectableText(info.keyUri ?? '',
+                    style: const TextStyle(fontSize: 12)),
+              ),
+              const SizedBox(height: 12),
+              const Text('② 用浏览器或下载工具（可联网的设备）打开该地址，'
+                  '下载得到密钥文件（通常只有 16~32 字节）；\n'
+                  '③ 把密钥文件放进 local.m3u8 所在目录，命名为 key.key'
+                  '（保留原名也可，会自动识别常见命名）；\n'
+                  '④ 回到本页点右上角刷新，该条目即可勾选合并。'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: info.keyUri ?? ''));
+              Navigator.of(ctx).pop();
+              messenger.showSnackBar(
+                  const SnackBar(content: Text('密钥地址已复制')));
+            },
+            child: const Text('复制地址'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('知道了'),
+          ),
+        ],
       ),
     );
   }
