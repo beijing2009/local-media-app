@@ -76,6 +76,8 @@ class MergeOutcome {
 ///  - AES-128（含 192/256，按密钥长度自动适配）：**密钥文件必须已在本机**
 ///    * 支持显式 IV，也支持按分片序号推导隐式 IV
 ///    * KEYFORMAT=identity 直接读取本地密钥文件
+///    * 密钥文件名/扩展名变体自动匹配：列表里写 `mysecret`，本机是
+///      `mysecret.key` / `mysecret.bin` / `mysecret`（无后缀）都能定位
 ///
 /// 不支持（属于内容保护破解，本项目不实现）：
 ///  - SAMPLE-AES、Widevine / FairPlay / PlayReady 等 DRM
@@ -187,7 +189,7 @@ class M3u8Service {
             continue;
           }
           // 密钥必须已在本机：远程地址 / 本地缺失一律判为不可用，绝不联网拉取。
-          final localKey = _resolveLocal(baseDir, uri);
+          final localKey = _resolveKey(baseDir, uri);
           if (localKey == null) {
             method = '$m（本机无密钥文件）';
             unreadable = true;
@@ -269,6 +271,46 @@ class M3u8Service {
         addName(p.basename(decoded));
       }
     }
+
+    for (final n in names) {
+      for (final c in <String>[n, p.join(baseDir, n)]) {
+        try {
+          if (File(c).existsSync()) return c;
+        } catch (_) {}
+      }
+    }
+    return null;
+  }
+
+  /// 解析本地密钥文件。在 [_resolveLocal]（相对/绝对/基名/ % 编码 / .ts 变体）
+  /// 的基础上，额外尝试密钥常见的扩展名变体，降低「本机明明有密钥、却因
+  /// 播放列表里的名字和文件对不上而被误判为『本机无密钥文件』」的误判。
+  ///
+  /// 典型场景：下载器缓存目录里 `#EXT-X-KEY` 写 `URI="mysecret"`，
+  /// 而真实密钥文件是 `mysecret.key` / `mysecret.bin` / `mysecret`（无扩展名）。
+  ///
+  /// 纯本地：所有候选都只检查本机已存在的文件，绝不联网。
+  static String? _resolveKey(String baseDir, String uri) {
+    // 先走分片同款解析（覆盖相对/绝对/基名/ % 编码 / .ts 变体），命中即返回
+    final bySegment = _resolveLocal(baseDir, uri);
+    if (bySegment != null) return bySegment;
+
+    final u = uri.split('?').first.split('#').first;
+    final base = p.basename(u);
+    if (base.isEmpty) return null;
+
+    final names = <String>{};
+    void add(String n) {
+      if (n.isNotEmpty) names.add(n);
+    }
+    final dot = base.lastIndexOf('.');
+    final stem = dot > 0 ? base.substring(0, dot) : base;
+    add(base); // 原样
+    add('$stem.key'); // 常见的 .key 后缀
+    add('$stem.bin'); // 常见的 .bin 后缀
+    add(stem); // 去掉任何后缀（无扩展名密钥）
+    add('key.key'); // 同目录下通用命名
+    add('key.bin');
 
     for (final n in names) {
       for (final c in <String>[n, p.join(baseDir, n)]) {

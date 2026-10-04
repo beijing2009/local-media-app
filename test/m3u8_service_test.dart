@@ -394,6 +394,71 @@ void main() {
     expect(info.missingCount, 1,
         reason: '候选(2) != 缺失(1) 时应保持缺失，不能拿哈希文件乱凑');
   });
+
+  test('⑯ 密钥 URI 无扩展名、本机是 .key 文件也能定位并解密', () async {
+    // 下载器常见：#EXT-X-KEY 写 URI="mysecret"，目录里实际是 mysecret.key
+    final dir = Directory(p.join(_root.path, 'keyext'))..createSync();
+    final key = enc.Key.fromUtf8('1122334455667788');
+    final iv = enc.IV(Uint8List.fromList(List<int>.generate(16, (i) => 0x20 + i)));
+    final crypter = enc.Encrypter(enc.AES(key, mode: enc.AESMode.cbc));
+    File(p.join(dir.path, 'mysecret.key')).writeAsBytesSync(key.bytes);
+
+    final expected = <int>[];
+    final ivHex = iv.base16.toLowerCase();
+    for (var i = 0; i < 2; i++) {
+      final plain = _randBytes(640 + i * 17);
+      File(p.join(dir.path, 'seg$i.ts'))
+          .writeAsBytesSync(crypter.encryptBytes(plain, iv: iv).bytes);
+      expected.addAll(plain);
+    }
+    final m3u = File(p.join(dir.path, 'index.m3u8'))
+      ..writeAsStringSync('#EXTM3U\n'
+          '#EXT-X-KEY:METHOD=AES-128,URI="mysecret",IV=0x$ivHex\n'
+          'seg0.ts\n'
+          'seg1.ts\n');
+
+    final info = M3u8Service.parse(m3u.path);
+    expect(info.unreadable, false,
+        reason: '应能按 .key 扩展名变体找到本机密钥');
+    expect(info.method, 'AES-128');
+
+    final out = Directory(p.join(_root.path, 'out'))..createSync();
+    final r = await M3u8Service.mergeOne(info,
+        outputDir: out.path, useOriginalName: true);
+    expect(r.error, isNull);
+    expect(File(p.join(out.path, 'index.ts')).readAsBytesSync(), expected);
+  });
+
+  test('⑰ 密钥 URI 无扩展名、本机是 .bin 文件也能定位并解密', () async {
+    final dir = Directory(p.join(_root.path, 'keybin'))..createSync();
+    final keyBytes = Uint8List.fromList(List<int>.generate(16, (i) => 0x30 + i));
+    final key = enc.Key(keyBytes);
+    final iv = enc.IV.fromLength(16);
+    final crypter = enc.Encrypter(enc.AES(key, mode: enc.AESMode.cbc));
+    File(p.join(dir.path, 'thekey.bin')).writeAsBytesSync(keyBytes);
+
+    final expected = <int>[];
+    for (var i = 0; i < 2; i++) {
+      final plain = _randBytes(512 + i * 13);
+      File(p.join(dir.path, 's$i.ts'))
+          .writeAsBytesSync(crypter.encryptBytes(plain, iv: iv).bytes);
+      expected.addAll(plain);
+    }
+    final m3u = File(p.join(dir.path, 'index.m3u8'))
+      ..writeAsStringSync('#EXTM3U\n'
+          '#EXT-X-KEY:METHOD=AES-128,URI="thekey",IV=0x${iv.base16.toLowerCase()}\n'
+          's0.ts\n'
+          's1.ts\n');
+
+    final info = M3u8Service.parse(m3u.path);
+    expect(info.unreadable, false,
+        reason: '应能按 .bin 扩展名变体找到本机密钥');
+    final out = Directory(p.join(_root.path, 'out'))..createSync();
+    final r = await M3u8Service.mergeOne(info,
+        outputDir: out.path, useOriginalName: true);
+    expect(r.error, isNull);
+    expect(File(p.join(out.path, 'index.ts')).readAsBytesSync(), expected);
+  });
 }
 
 /// 生成固定种子的随机字节，保证可复现（同时避免被 R8/压缩误判为常量）
