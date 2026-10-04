@@ -80,6 +80,9 @@ class MergeOutcome {
 ///    * KEYFORMAT=identity 直接读取本地密钥文件
 ///    * 密钥文件名/扩展名变体自动匹配：列表里写 `mysecret`，本机是
 ///      `mysecret.key` / `mysecret.bin` / `mysecret`（无后缀）都能定位
+///    * **本地密钥自动搜索**：同目录找不到时，自动在父级、同级（兄弟）目录查找；
+///      若仍找不到且在 `scanPlaylists` 提供的根目录内，再做有界递归（深度/文件数上限），
+///      自动定位下载器放在 `Downloader/key.key` 或 `Downloader/keys/*` 的密钥
 ///
 /// 不支持（属于内容保护破解，本项目不实现）：
 ///  - SAMPLE-AES、Widevine / FairPlay / PlayReady 等 DRM
@@ -96,7 +99,8 @@ class M3u8Service {
     final infos = <M3u8Info>[];
     for (final path in found) {
       try {
-        infos.add(parse(path));
+        // 把用户选定的根目录作为密钥有界递归搜索根（见 _resolveKey ③）
+        infos.add(parse(path, keySearchRoots: roots));
       } catch (_) {
         // 单个文件解析失败不影响整体
       }
@@ -134,7 +138,10 @@ class M3u8Service {
   }
 
   /// 解析单个播放列表。
-  static M3u8Info parse(String path) {
+  /// [keySearchRoots] 一般为 `scanPlaylists` 传入的用户选定根目录：在密钥
+  /// 不在本目录时，于这些根内做**有界**递归搜索（深度/文件数上限）。
+  /// 为空时只做「同目录 + 父级/同级」就近搜索（用于全盘扫描，避免整机递归）。
+  static M3u8Info parse(String path, {List<String>? keySearchRoots}) {
     final baseDir = p.dirname(path);
     final lines = const LineSplitter().convert(File(path).readAsStringSync());
     final segments = <M3u8Segment>[];
@@ -192,7 +199,7 @@ class M3u8Service {
             continue;
           }
           // 密钥必须已在本机：远程地址 / 本地缺失一律判为不可用，绝不联网拉取。
-          final localKey = _resolveKey(baseDir, uri);
+          final localKey = _resolveKey(baseDir, uri, searchRoots: keySearchRoots);
           if (localKey == null) {
             method = '$m（本机无密钥文件）';
             unreadable = true;
@@ -287,23 +294,51 @@ class M3u8Service {
     return null;
   }
 
-  /// 解析本地密钥文件。在 [_resolveLocal]（相对/绝对/基名/ % 编码 / .ts 变体）
-  /// 的基础上，额外尝试密钥常见的扩展名变体，降低「本机明明有密钥、却因
-  /// 播放列表里的名字和文件对不上而被误判为『本机无密钥文件』」的误判。
+  /// 解析本地密钥文件。查找顺序（**纯本地，绝不联网**）：
+  ///  1. 同目录：分片同款解析（相对/绝对/基名/ % 编码 / .ts 变体）+ 密钥扩展名变体；
+  ///  2. 父级 / 同级目录：沿祖先链向上找，并检查每个祖先的直接子目录（兄弟目录）；
+  ///  3. 指定扫描根（可选）：在用户选定的扫描根内做**有界**递归搜索（深度/文件数上限）。
   ///
-  /// 典型场景：下载器缓存目录里 `#EXT-X-KEY` 写 `URI="mysecret"`，
-  /// 而真实密钥文件是 `mysecret.key` / `mysecret.bin` / `mysecret`（无扩展名）。
+  /// 典型场景：下载器把密钥存在 `Downloader/key.key` 或 `Downloader/keys/xxx.key`，
+  /// 而 `local.m3u8` 在 `Downloader/<哈希>/` 下。只要密钥文件名与播放列表里写的
+  /// 一致（本机为 `xxx.key` / `xxx.bin` / `xxx`），即可自动定位，无需手动复制下载。
   ///
-  /// 纯本地：所有候选都只检查本机已存在的文件，绝不联网。
-  static String? _resolveKey(String baseDir, String uri) {
-    // 先走分片同款解析（覆盖相对/绝对/基名/ % 编码 / .ts 变体），命中即返回
+  /// [searchRoots] 一般为 `scanPlaylists` 传入的用户选定根目录；为空时只做 1、2 两步
+  /// （用于全盘扫描时避免整机递归）。
+  static String? _resolveKey(String baseDir, String uri,
+      {List<String>? searchRoots}) {
+    // ① 同目录（分片同款 + 密钥扩展名变体），命中即返回
     final bySegment = _resolveLocal(baseDir, uri);
     if (bySegment != null) return bySegment;
 
     final u = uri.split('?').first.split('#').first;
     final base = p.basename(u);
     if (base.isEmpty) return null;
+    final names = _keyCandidateNames(base);
 
+    // ② 父级 / 同级：祖先链 + 每个祖先的直接子目录（有界、纯本地）
+    for (final dir in _nearbyDirs(baseDir)) {
+      for (final n in names) {
+        final c = p.join(dir, n);
+        try {
+          if (File(c).existsSync()) return c;
+        } catch (_) {}
+      }
+    }
+
+    // ③ 指定扫描根内的有界递归（depth/count 双上限，防止整机卡死）
+    if (searchRoots != null) {
+      for (final root in searchRoots) {
+        final hit = _findKeyByName(root, names);
+        if (hit != null) return hit;
+      }
+    }
+    return null;
+  }
+
+  /// 密钥可能的本机文件名（去重保序）。覆盖：
+  ///  原样 / .key / .bin / 去后缀 / 同目录通用 key.key / key.bin。
+  static List<String> _keyCandidateNames(String base) {
     final names = <String>{};
     void add(String n) {
       if (n.isNotEmpty) names.add(n);
@@ -316,15 +351,58 @@ class M3u8Service {
     add(stem); // 去掉任何后缀（无扩展名密钥）
     add('key.key'); // 同目录下通用命名
     add('key.bin');
+    return names.toList();
+  }
 
-    for (final n in names) {
-      for (final c in <String>[n, p.join(baseDir, n)]) {
-        try {
-          if (File(c).existsSync()) return c;
-        } catch (_) {}
-      }
+  /// 返回 baseDir 周围的「近邻目录」：祖先链（父级）以及每个祖先的直接子目录（同级）。
+  /// 上限 8 层，避免极端深层目录造成死循环。
+  static List<String> _nearbyDirs(String baseDir) {
+    final dirs = <String>[];
+    Directory? d = Directory(baseDir).parent;
+    var levels = 0;
+    while (d != null && levels < 8) {
+      dirs.add(d.path);
+      try {
+        for (final e in d.listSync(followLinks: false)) {
+          if (e is Directory) dirs.add(e.path); // 同级 / 兄弟目录
+        }
+      } catch (_) {}
+      final parent = d.parent;
+      if (parent.path == d.path) break; // 已到文件系统根
+      d = parent;
+      levels++;
     }
-    return null;
+    return dirs;
+  }
+
+  /// 在 [root] 内有界递归查找文件名命中 [names] 之一的文件。
+  /// 深度上限 [maxDepth]、累计文件数上限 [maxFiles]，超限即放弃（避免整机扫描卡死）。
+  static String? _findKeyByName(String root, List<String> names,
+      {int maxDepth = 4, int maxFiles = 2000}) {
+    final rootDir = Directory(root);
+    if (!rootDir.existsSync()) return null;
+    var scanned = 0;
+    String? walk(Directory dir, int depth) {
+      if (depth > maxDepth) return null;
+      List<FileSystemEntity> entries;
+      try {
+        entries = dir.listSync(followLinks: false);
+      } catch (_) {
+        return null;
+      }
+      for (final e in entries) {
+        if (scanned > maxFiles) return null;
+        if (e is Directory) {
+          final hit = walk(e, depth + 1);
+          if (hit != null) return hit;
+        } else if (e is File) {
+          scanned++;
+          if (names.contains(p.basename(e.path))) return e.path;
+        }
+      }
+      return null;
+    }
+    return walk(rootDir, 0);
   }
 
   static String _tryDecode(String s) {

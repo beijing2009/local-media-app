@@ -1,7 +1,7 @@
 name: local_media_app
 description: 本地音视频播放器（安卓 + iOS），纯本地运行，不依赖云端，轻量流畅。
 publish_to: 'none'
-version: 1.6.0+8 # v1.6.0：缺密钥时展示密钥地址 + 一键复制 + 手动补齐指引
+version: 1.7.0+9 # v1.7.0：M3U8 本地密钥自动搜索（父级/同级目录 + 扫描根有界递归）
 
 environment:
   # Flutter 3.0.0 对应 Dart 2.17

@@ -461,6 +461,110 @@ void main() {
     expect(r.error, isNull);
     expect(File(p.join(out.path, 'index.ts')).readAsBytesSync(), expected);
   });
+
+  test('⑱ 密钥在父级目录：自动向上查找父级目录定位密钥（无需手动复制）',
+      () async {
+    // 模拟：local.m3u8 在 Downloader/<哈希>/，密钥在 Downloader/key.key
+    final dir = Directory(p.join(_root.path, 'dl', 'hash123'))..createSync(recursive: true);
+    final key = enc.Key.fromUtf8('5566778899aabbcc');
+    final iv = enc.IV(Uint8List.fromList(List<int>.generate(16, (i) => 0x40 + i)));
+    final crypter = enc.Encrypter(enc.AES(key, mode: enc.AESMode.cbc));
+    // 密钥放进父级目录 Downloader/
+    File(p.join(_root.path, 'dl', 'key.key')).writeAsBytesSync(key.bytes);
+
+    final expected = <int>[];
+    final ivHex = iv.base16.toLowerCase();
+    for (var i = 0; i < 2; i++) {
+      final plain = _randBytes(620 + i);
+      File(p.join(dir.path, 'seg$i.ts'))
+          .writeAsBytesSync(crypter.encryptBytes(plain, iv: iv).bytes);
+      expected.addAll(plain);
+    }
+    final m3u = File(p.join(dir.path, 'local.m3u8'))
+      ..writeAsStringSync('#EXTM3U\n'
+          '#EXT-X-KEY:METHOD=AES-128,URI="key.key",IV=0x$ivHex\n'
+          'seg0.ts\n'
+          'seg1.ts\n');
+
+    final info = M3u8Service.parse(m3u.path); // 不传 searchRoots，仅靠父级/同级搜索
+    expect(info.unreadable, false, reason: '应自动在父级目录找到密钥');
+    expect(info.method, 'AES-128');
+
+    final out = Directory(p.join(_root.path, 'out'))..createSync();
+    final r = await M3u8Service.mergeOne(info,
+        outputDir: out.path, useOriginalName: true);
+    expect(r.error, isNull);
+    expect(File(p.join(out.path, 'local.ts')).readAsBytesSync(), expected);
+  });
+
+  test('⑲ 密钥在同级（兄弟）目录：自动查找父级的其它子目录定位密钥',
+      () async {
+    // local.m3u8 在 Downloader/<哈希>/，密钥在 Downloader/keys/k.bin（同级兄弟目录）
+    final dir = Directory(p.join(_root.path, 'dl', 'hash123'))..createSync(recursive: true);
+    final keyBytes = Uint8List.fromList(List<int>.generate(16, (i) => 0x50 + i));
+    final key = enc.Key(keyBytes);
+    final iv = enc.IV.fromLength(16);
+    final crypter = enc.Encrypter(enc.AES(key, mode: enc.AESMode.cbc));
+    File(p.join(_root.path, 'dl', 'keys', 'k.bin'))
+      ..createSync(recursive: true)
+      ..writeAsBytesSync(keyBytes);
+
+    final expected = <int>[];
+    for (var i = 0; i < 2; i++) {
+      final plain = _randBytes(512 + i * 19);
+      File(p.join(dir.path, 's$i.ts'))
+          .writeAsBytesSync(crypter.encryptBytes(plain, iv: iv).bytes);
+      expected.addAll(plain);
+    }
+    final m3u = File(p.join(dir.path, 'local.m3u8'))
+      ..writeAsStringSync('#EXTM3U\n'
+          '#EXT-X-KEY:METHOD=AES-128,URI="k",IV=0x${iv.base16.toLowerCase()}\n'
+          's0.ts\n'
+          's1.ts\n');
+
+    final info = M3u8Service.parse(m3u.path);
+    expect(info.unreadable, false, reason: '应自动在同级兄弟目录找到密钥');
+    final out = Directory(p.join(_root.path, 'out'))..createSync();
+    final r = await M3u8Service.mergeOne(info,
+        outputDir: out.path, useOriginalName: true);
+    expect(r.error, isNull);
+    expect(File(p.join(out.path, 'local.ts')).readAsBytesSync(), expected);
+  });
+
+  test('⑳ 指定扫描根内递归兜底：密钥在根下任意子目录也能被有界搜索定位',
+      () async {
+    final root = Directory(p.join(_root.path, 'root'))..createSync();
+    final m3uDir = Directory(p.join(root.path, 'a', 'b', 'c'))..createSync(recursive: true);
+    final key = enc.Key.fromUtf8('deadbeefcafebabe');
+    final iv = enc.IV.fromLength(16);
+    final crypter = enc.Encrypter(enc.AES(key, mode: enc.AESMode.cbc));
+    // 密钥放在根下的深层无关目录
+    File(p.join(root.path, 'x', 'y', 'secret.key'))
+      ..createSync(recursive: true)
+      ..writeAsBytesSync(key.bytes);
+
+    final expected = <int>[];
+    for (var i = 0; i < 2; i++) {
+      final plain = _randBytes(480 + i * 7);
+      File(p.join(m3uDir.path, 's$i.ts'))
+          .writeAsBytesSync(crypter.encryptBytes(plain, iv: iv).bytes);
+      expected.addAll(plain);
+    }
+    final m3u = File(p.join(m3uDir.path, 'local.m3u8'))
+      ..writeAsStringSync('#EXTM3U\n'
+          '#EXT-X-KEY:METHOD=AES-128,URI="secret.key",IV=0x${iv.base16.toLowerCase()}\n'
+          's0.ts\n'
+          's1.ts\n');
+
+    // 仅父级/同级找不到（密钥在无关深层目录），需靠 searchRoots 递归
+    final info = M3u8Service.parse(m3u.path, keySearchRoots: [root.path]);
+    expect(info.unreadable, false, reason: '应在扫描根内递归找到密钥');
+    final out = Directory(p.join(_root.path, 'out'))..createSync();
+    final r = await M3u8Service.mergeOne(info,
+        outputDir: out.path, useOriginalName: true);
+    expect(r.error, isNull);
+    expect(File(p.join(out.path, 'local.ts')).readAsBytesSync(), expected);
+  });
 }
 
 /// 生成固定种子的随机字节，保证可复现（同时避免被 R8/压缩误判为常量）
