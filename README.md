@@ -2,8 +2,10 @@
 
 纯本地运行的跨端影音 App（**Android + iOS**），不依赖任何云端服务器。包含两大独立模块：
 
-- **视频区**：抖音风格上下滑动浏览本地 mp4，自动续播。
+- **视频区**：全屏竖向滑动浏览本地视频，自动续播。
 - **音频区（听书）**：喜马拉雅风格专辑 / 剧集管理，后台播放、倍速、上下集、进度记忆。
+
+首页采用**左右分栏**切换【视频区】/【音频听书区】（竖向滑动翻页 + 顶部胶囊切换），左滑侧边栏提供本地文件浏览、M3U8 合并工具、深色模式与设置入口。
 
 > 所有视频 / 音频读取、播放进度记录 **全部保存在本机**，App 不含任何网络请求代码、不申请 `INTERNET` 权限、不上传任何文件。
 
@@ -29,10 +31,12 @@
 | 需求 | 实现位置 |
 |------|----------|
 | 本地文件浏览、识别 mp4/mp3/m4a、浏览文件夹 | `services/file_scanner.dart`、`screens/file_browser_screen.dart` |
-| 文件名搜索 | `video_feed_screen`（视频）/ `audio_home_screen`（音频）搜索框 |
-| 深色 / 浅色一键切换 | `providers/theme_provider.dart` + `screens/settings/settings_screen.dart` |
-| 三独立板块（视频区 / 音频区 / 功能区）互不干扰 | `screens/tabs_screen.dart` 用 `IndexedStack` 保活各页 |
-| 视频：抖音式上下滑、暂停、音量 | `screens/video/video_feed_screen.dart`、`video_page.dart` |
+| 文件名搜索 | 视频区 / 音频区搜索框 + 文件浏览器递归搜索（`file_browser_screen.dart` 按名称 + 媒体类型过滤） |
+| 深色 / 浅色一键切换 | `providers/theme_provider.dart` + `screens/settings/settings_screen.dart`（侧边栏亦可切换） |
+| 首页左右分栏切换【视频区】/【音频听书区】 | `screens/home_screen.dart` 顶部胶囊 + 横滑 `PageView` |
+| 功能侧边栏（本地文件 / 工具 / 外观 / 设置） | `widgets/app_drawer.dart`（`HomeScreen` 内置 `Drawer`） |
+| 视频：全屏竖向上滑切换、暂停、音量 | `screens/video/video_feed_screen.dart`、`video_page.dart` |
+| 视频：右侧竖排按钮（播放/暂停、收藏、详情） | `video_page.dart` 右侧 `Column`；收藏存于 `services/favorite_service.dart` |
 | 视频：进度记忆续播 | `video_page.dart` + `services/database_service.dart`（`vp:` 键值） |
 | 视频：仅处理视频 | `FileScanner` 只收集 mp4 |
 | 音频：自建专辑 / 剧集分类 | `audio_home_screen.dart`（从文件 / 文件夹新建专辑） |
@@ -40,6 +44,7 @@
 | 音频：分栏（剧集列表 / 目录 / 简介） | `album_detail_screen.dart`（宽屏左右分栏，窄屏 Tab 切换） |
 | 音频：后台播放 / 倍速 / 上下集 / 音量 | `audio_provider.dart` + `album_detail_screen._ControlPanel` |
 | 音频：仅处理音频 | `FileScanner` 只收集 mp3/m4a |
+| 悬浮「正在播放」条 | `widgets/now_playing_bar.dart`（`HomeScreen` 底部常驻） |
 | 性能 / 体积 / 无网络 | 无网络代码、`minifyEnabled`、`shrinkResources`、精简动画 |
 
 ---
@@ -266,24 +271,30 @@ lib/
 ├── services/
 │   ├── permission_service.dart   # 安卓存储权限（MANAGE_EXTERNAL_STORAGE）
 │   ├── file_scanner.dart         # 递归扫描 mp4/mp3/m4a
-│   └── database_service.dart     # SQLite：进度 / 专辑 / 扫描根目录
+│   ├── database_service.dart     # SQLite：进度 / 专辑 / 扫描根目录
+│   ├── favorite_service.dart     # 视频收藏（shared_preferences）
+│   └── auto_scanner.dart         # 全盘扫描（独立 Isolate，安卓）
 ├── providers/
 │   ├── theme_provider.dart       # 深 / 浅色
 │   ├── audio_provider.dart       # 音频播放状态（全局单例）
 │   └── scan_notifier.dart        # 扫描源变更通知
 ├── utils/format.dart             # 时长 / 大小格式化
 └── screens/
-    ├── tabs_screen.dart          # 三板块 IndexedStack
-    ├── file_browser_screen.dart  # 文件夹浏览
+    ├── home_screen.dart          # 首页：左右分栏（视频区 / 音频听书区）
+    ├── file_browser_screen.dart  # 文件夹浏览 + 文件名搜索
     ├── video/
-    │   ├── video_feed_screen.dart# 抖音式竖向 PageView
-    │   └── video_page.dart       # 单视频页（播放/续播/音量）
+    │   ├── video_feed_screen.dart# 全屏竖向 PageView + 渐变顶栏
+    │   └── video_page.dart       # 单视频页（右侧竖排按钮 / 续播 / 音量）
     ├── audio/
-    │   ├── audio_home_screen.dart# 专辑列表 + 新建
+    │   ├── audio_home_screen.dart# 专辑列表 + 新建（内容视图）
     │   ├── album_detail_screen.dart # 分栏详情 + 控制面板
     │   └── now_playing_bar.dart  # 底部迷你播放条
+    ├── import/                   # 批量导入 / 导入中心
     └── settings/
-        └── settings_screen.dart  # 功能区：外观 / 扫描目录 / 清进度
+        └── settings_screen.dart  # 设置：外观 / 扫描目录 / 清进度
+└── widgets/
+    ├── app_drawer.dart           # 功能侧边栏
+    └── now_playing_bar.dart      # 悬浮「正在播放」条
 ```
 
 ---

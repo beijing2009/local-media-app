@@ -16,12 +16,12 @@ class ImportCandidate {
   });
 }
 
-/// 本地导入服务：探测抖音/快手等平台保存到本机的目录，便于批量导入到视频列表。
+/// 本地导入服务：探测本机常见的媒体存放目录，便于批量导入到视频列表。
 ///
 /// 说明（重要）：
-/// - **完全离线**，只读取本机已存在的文件，不做任何网络请求、不解析任何线上链接。
-/// - 视频来源是「用户自己在抖音/快手 App 里点『保存到相册/本地』」保存下来的本机文件，
-///   不属于抓取行为，符合平台规则与版权要求。
+/// - **完全离线**，只读取本机已存在的文件，不做任何网络请求、不解析任何线上内容。
+/// - 只按「通用目录名」定位（相册 / 影片 / 下载 / 图片等），
+///   不针对任何第三方平台做适配或抓取，仅导入用户本机已有的本地文件。
 class ImportService {
   /// 安卓常见外置存储根
   static const List<String> _storageRoots = <String>[
@@ -29,32 +29,15 @@ class ImportService {
     '/sdcard',
   ];
 
-  /// 常见「平台保存目录」候选：展示名 -> 可能的相对路径（多备选）
+  /// 常见「本机媒体目录」候选：展示名 -> 可能的相对路径（多备选）。
+  /// 只使用系统级通用目录名，不涉及任何第三方平台专有目录。
   static const Map<String, List<String>> _namedCandidates = <String, List<String>>{
-    '抖音': <String>[
-      'DCIM/抖音',
-      'DCIM/Douyin',
-      'DCIM/douyin',
-      'DCIM/aweme',
-      'Pictures/抖音',
-      'Movies/抖音',
-      'Download/抖音',
-      'Download/Douyin',
-    ],
-    '快手': <String>[
-      'DCIM/快手',
-      'DCIM/Kuaishou',
-      'DCIM/kuaishou',
-      'DCIM/gifshow',
-      'Pictures/快手',
-      'Movies/快手',
-      'Download/快手',
-      'Download/Kuaishou',
-    ],
     '相册 / 相机': <String>['DCIM/Camera', 'DCIM'],
-    '影片': <String>['Movies'],
-    '下载': <String>['Download'],
+    '影片': <String>['Movies', 'Movie'],
+    '下载': <String>['Download', 'Downloads'],
     '图片': <String>['Pictures'],
+    '音乐': <String>['Music'],
+    '视频': <String>['Videos', 'Video'],
   };
 
   /// 探测本机中真实存在、且确实含视频的候选目录。

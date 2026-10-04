@@ -30,15 +30,9 @@ void main() {
     final sub = Directory(p.join(_root.path, 'sub'))..createSync();
     File(p.join(sub.path, 'd.m4a')).writeAsBytesSync([1]);
 
-    int? lastFound;
-    int? lastDirs;
     final media = await AutoScanner.scanMedia(
       roots: [_root.path],
       maxDepth: 5,
-      onProgress: (d, f) {
-        lastDirs = d;
-        lastFound = f;
-      },
     );
 
     final names = media.map((m) => m.name).toList()..sort();

@@ -10,7 +10,6 @@ import '../../services/auto_scanner.dart';
 import '../../services/permission_service.dart';
 import '../../widgets/full_scan_dialog.dart';
 import 'album_detail_screen.dart';
-import 'now_playing_bar.dart';
 
 /// 音频区首页：专辑（听书）列表，支持自建专辑、剧集分类管理。
 class AudioHomeScreen extends StatefulWidget {
@@ -218,73 +217,79 @@ class _AudioHomeScreenState extends State<AudioHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('音频区'),
-        actions: [
-          PopupMenuButton<String>(
-            onSelected: (v) {
-              if (v == 'files') _createFromFiles();
-              if (v == 'folder') _createFromFolder();
-              if (v == 'full') _fullScanAudio();
-            },
-            itemBuilder: (_) => <PopupMenuEntry<String>>[
-              const PopupMenuItem(value: 'files', child: Text('从音频文件新建')),
-              const PopupMenuItem(value: 'folder', child: Text('从文件夹新建')),
-              if (AutoScanner.isAndroid)
-                const PopupMenuItem(value: 'full', child: Text('全盘扫描')),
-            ],
-            icon: const Icon(Icons.add),
-          ),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(52),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-            child: TextField(
-              controller: _search,
-              decoration: const InputDecoration(
-                hintText: '搜索专辑名',
-                prefixIcon: Icon(Icons.search, size: 20),
-                isDense: true,
-                border: OutlineInputBorder(),
+    // 作为首页「音频听书区分栏」嵌入，不再自带 AppBar / 底部播放器
+    // （底部悬浮播放器由首页统一提供）。
+    return Column(
+      children: [
+        // 顶部搜索 + 新建专辑
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _search,
+                  decoration: const InputDecoration(
+                    hintText: '搜索专辑名',
+                    prefixIcon: Icon(Icons.search, size: 20),
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
               ),
-              onChanged: (_) => setState(() {}),
-            ),
+              PopupMenuButton<String>(
+                onSelected: (v) {
+                  if (v == 'files') _createFromFiles();
+                  if (v == 'folder') _createFromFolder();
+                  if (v == 'full') _fullScanAudio();
+                },
+                itemBuilder: (_) => <PopupMenuEntry<String>>[
+                  const PopupMenuItem(value: 'files', child: Text('从音频文件新建')),
+                  const PopupMenuItem(value: 'folder', child: Text('从文件夹新建')),
+                  if (AutoScanner.isAndroid)
+                    const PopupMenuItem(value: 'full', child: Text('全盘扫描')),
+                ],
+                icon: const Icon(Icons.add),
+              ),
+            ],
           ),
         ),
-      ),
-      body: filtered.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: const [
-                  Icon(Icons.headphones, size: 64, color: Colors.grey),
-                  SizedBox(height: 12),
-                  Text('还没有专辑'),
-                  Text('点击右上角 + 从文件或文件夹新建',
-                      style: TextStyle(color: Colors.grey, fontSize: 12)),
-                ],
-              ),
-            )
-          : ListView.separated(
-              itemCount: filtered.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (ctx, i) {
-                final album = filtered[i];
-                return _AlbumTile(
-                  album: album,
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => AlbumDetailScreen(album: album),
-                  )),
-                  onDelete: () async {
-                    await DatabaseService.instance.deleteAlbum(album.id);
-                    _load();
+        Expanded(
+          child: filtered.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.headphones, size: 64, color: Colors.grey),
+                      SizedBox(height: 12),
+                      Text('还没有专辑'),
+                      Text('点击右侧 + 从文件或文件夹新建',
+                          style: TextStyle(color: Colors.grey, fontSize: 12)),
+                    ],
+                  ),
+                )
+              : ListView.separated(
+                  // 底部留出悬浮播放器高度，避免最后一条被遮挡
+                  padding: const EdgeInsets.only(bottom: 84),
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (ctx, i) {
+                    final album = filtered[i];
+                    return _AlbumTile(
+                      album: album,
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => AlbumDetailScreen(album: album),
+                      )),
+                      onDelete: () async {
+                        await DatabaseService.instance.deleteAlbum(album.id);
+                        _load();
+                      },
+                    );
                   },
-                );
-              },
-            ),
-      bottomNavigationBar: const NowPlayingBar(),
+                ),
+        ),
+      ],
     );
   }
 }

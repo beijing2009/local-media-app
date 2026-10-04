@@ -6,10 +6,10 @@
 ///  - build code 必须单调自增（用于安卓 / iOS 包识别升级）
 class AppVersion {
   /// 版本名（展示给用户）
-  static const String name = '1.2.0';
+  static const String name = '1.3.0';
 
   /// 构建号（每次出包都要 +1，不可重复）
-  static const int code = 4;
+  static const int code = 5;
 
   /// 发布日期
   static const String date = '2026-10-04';

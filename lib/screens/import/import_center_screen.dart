@@ -250,7 +250,7 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
               const Text('没有检测到可用的视频目录'),
               const SizedBox(height: 6),
               const Text(
-                '请先在抖音/快手里「保存到本地/相册」，或手动选择一个文件夹',
+                '请在其他应用中使用「保存到本地/相册」，或手动选择一个文件夹',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey, fontSize: 12),
               ),

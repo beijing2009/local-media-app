@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/audio_provider.dart';
 import 'providers/scan_notifier.dart';
-import 'screens/tabs_screen.dart';
+import 'screens/home_screen.dart';
 
 void main() {
   // 纯本地应用：不初始化任何网络层，所有数据仅来自本机文件系统与本地数据库。
@@ -49,7 +49,7 @@ class AppRoot extends StatelessWidget {
         primarySwatch: Colors.deepPurple,
         scaffoldBackgroundColor: const Color(0xFF121212),
       ),
-      home: const TabsScreen(),
+      home: const HomeScreen(),
     );
   }
 }

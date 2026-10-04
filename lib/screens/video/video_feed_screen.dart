@@ -13,7 +13,7 @@ import 'video_page.dart';
 import '../file_browser_screen.dart';
 import '../import/import_center_screen.dart';
 
-/// 视频区：抖音风格上下滑动浏览（仅处理 mp4 视频）。
+/// 视频区：全屏竖向滑动浏览（仅处理 mp4 / ts 视频）。
 class VideoFeedScreen extends StatefulWidget {
   const VideoFeedScreen({Key? key}) : super(key: key);
 
@@ -135,61 +135,99 @@ class _VideoFeedScreenState extends State<VideoFeedScreen> {
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('视频区'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.downloading_outlined),
-            tooltip: '批量导入视频',
-            onPressed: () async {
-              await Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => const ImportCenterScreen(),
-              ));
-              _loadFromRoots();
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.folder_open),
-            tooltip: '浏览文件夹',
-            onPressed: () async {
-              await Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) =>
-                    const FileBrowserScreen(mediaType: MediaType.video),
-              ));
-              _loadFromRoots();
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: '重新扫描',
-            onPressed: _loadFromRoots,
-          ),
-          if (AutoScanner.isAndroid)
-            IconButton(
-              icon: const Icon(Icons.storage),
-              tooltip: '全盘扫描',
-              onPressed: _fullScan,
+    // 作为首页「视频区分栏」嵌入，不再自带 AppBar：
+    // 视频全屏铺满，操作与搜索以半透明浮层压在顶部，不破坏全屏观感。
+    return Stack(
+      children: [
+        _buildBody(filtered),
+        _buildTopBar(),
+      ],
+    );
+  }
+
+  /// 顶部浮层：搜索框 + 操作按钮（刷新 / 全盘扫描 / 更多菜单）。
+  Widget _buildTopBar() {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: SafeArea(
+        bottom: false,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(10, 6, 6, 8),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: <Color>[
+                Colors.black.withOpacity(0.55),
+                Colors.black.withOpacity(0.0),
+              ],
             ),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(52),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-            child: TextField(
-              controller: _search,
-              decoration: const InputDecoration(
-                hintText: '搜索视频文件名',
-                prefixIcon: Icon(Icons.search, size: 20),
-                isDense: true,
-                border: OutlineInputBorder(),
+          ),
+          child: Row(
+            children: [
+              // 文件名检索
+              Expanded(
+                child: SizedBox(
+                  height: 38,
+                  child: TextField(
+                    controller: _search,
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    decoration: InputDecoration(
+                      hintText: '搜索视频文件名',
+                      hintStyle:
+                          const TextStyle(color: Colors.white54, fontSize: 14),
+                      prefixIcon:
+                          const Icon(Icons.search, size: 18, color: Colors.white70),
+                      isDense: true,
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.16),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(20),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
               ),
-              onChanged: (_) => setState(() {}),
-            ),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.white),
+                tooltip: '重新扫描',
+                onPressed: _loadFromRoots,
+              ),
+              if (AutoScanner.isAndroid)
+                IconButton(
+                  icon: const Icon(Icons.storage, color: Colors.white),
+                  tooltip: '全盘扫描',
+                  onPressed: _fullScan,
+                ),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, color: Colors.white),
+                onSelected: (v) async {
+                  if (v == 'import') {
+                    await Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const ImportCenterScreen(),
+                    ));
+                  } else if (v == 'browse') {
+                    await Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) =>
+                          const FileBrowserScreen(mediaType: MediaType.video),
+                    ));
+                  }
+                  _loadFromRoots();
+                },
+                itemBuilder: (_) => const <PopupMenuEntry<String>>[
+                  PopupMenuItem(value: 'import', child: Text('批量导入视频')),
+                  PopupMenuItem(value: 'browse', child: Text('浏览文件夹')),
+                ],
+              ),
+            ],
           ),
         ),
       ),
-      body: _buildBody(filtered),
     );
   }
 
@@ -207,7 +245,7 @@ class _VideoFeedScreenState extends State<VideoFeedScreen> {
             const SizedBox(height: 12),
             const Text('暂无视频'),
             const SizedBox(height: 4),
-            const Text('点右上角「批量导入」加入本机视频，或添加扫描目录',
+            const Text('点顶部 ⋮ 菜单批量导入 / 选择目录，或「全盘扫描」自动找',
                 style: TextStyle(color: Colors.grey, fontSize: 12)),
             const SizedBox(height: 8),
             Row(
@@ -239,7 +277,7 @@ class _VideoFeedScreenState extends State<VideoFeedScreen> {
         ),
       );
     }
-    // 抖音式竖向滑动：每个页面一个视频
+    // 全屏竖向分页：每个页面一个视频
     return PageView.builder(
       controller: _pageController,
       scrollDirection: Axis.vertical,

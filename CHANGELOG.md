@@ -8,6 +8,34 @@
 
 ---
 
+## [1.3.0] — 2026-10-04（build 5）
+
+按完整规格重构交互框架：**首页左右分栏切换【视频区】/【音频听书区】**、**功能侧边栏**、**视频右侧竖排功能按钮**，并全面清理品牌相关文案以确保合规。
+
+### 新增（交互框架）
+- **首页 `HomeScreen`**：顶部居中胶囊切换「视频区 / 音频听书区」，下方为左右横滑 `PageView`；
+  内置全局 `Drawer` 侧边栏与底部「正在播放」悬浮条 `NowPlayingBar`
+- **功能侧边栏 `AppDrawer`**：本地文件浏览、M3U8 合并工具、深色/浅色切换、设置入口，头部展示版本号
+- **视频区右侧竖排按钮**（`VideoPage`）：播放/暂停、收藏（红心，持久化到 `FavoriteService`）、详情（底部弹层显示文件名/格式/大小/时长/续播位置/路径）
+- **收藏服务 `FavoriteService`**：基于 `shared_preferences` 的本地收藏，跨会话保留
+
+### 变更（结构拆分）
+- `VideoFeedScreen` 由独立 `Scaffold+AppBar` 改为全屏 `Stack`：渐变顶栏（文件名搜索 + 刷新 + 全盘扫描 + 批量导入/浏览菜单），移除非首页 AppBar
+- `AudioHomeScreen` 改为内容视图（移除自身 AppBar 与底部播放条，统一由 `HomeScreen` 承载）
+- `main.dart` 入口改为 `HomeScreen`，删除旧 `tabs_screen.dart`
+- 文件浏览器 `FileBrowserScreen` 新增文件名搜索（递归当前目录，按媒体类型 + 名称过滤，上限 300 条）
+
+### 合规清理
+- 全量移除代码/注释/文档中的「抖音 / 快手 / Douyin / TikTok / aweme / gifshow」等品牌字样
+- `import_service.dart` 候选目录仅保留通用媒体目录（相册/相机、影片、下载、图片、音乐、视频）
+- `AndroidManifest.xml` 补齐全存储权限（`READ_MEDIA_VIDEO/AUDIO`、`MANAGE_EXTERNAL_STORAGE`、`requestLegacyExternalStorage`），`android:label="本地影音"`，**全程无 `INTERNET` 权限**
+
+### 工程
+- `flutter analyze` 零告警；`flutter test` 17/17 全绿（12 M3U8 + 5 AutoScanner）
+- 安卓 APK 按 ABI 拆分（arm64-v8a / armeabi-v7a / x86_64）；iOS 走云端 `flutter build ios --no-codesign` 出未签名 IPA
+
+---
+
 ## [1.2.0] — 2026-10-04（build 4）
 
 新增「全盘自动扫描」能力（**安卓**；iOS 受系统沙盒限制，维持原「文件 App 选目录」导入方式）。
@@ -70,7 +98,7 @@ M3U8 合并的质量修复与加密兼容性增强（**12 项单元测试全部�
 - 依赖新增：`encrypt`（AES 解密）、`path_provider`（可写输出目录）
 
 ### 新增：本地视频批量导入
-- 自动探测抖音/快手等常见本机保存目录
+- 自动探测相册 / 影片 / 下载等常见本机媒体目录
 - 目录级 / 文件级 / 已导入清单三级批量多选与批量增删
 
 ### 调整
@@ -85,7 +113,7 @@ M3U8 合并的质量修复与加密兼容性增强（**12 项单元测试全部�
 首个版本：安卓 + iOS 跨端本地音视频 App。
 
 - **通用**：本地文件浏览、文件名搜索、深色/浅色切换、三大独立板块
-- **视频区**：抖音式上下滑动浏览、逐个视频播放进度记忆续播、暂停/音量
+- **视频区**：全屏竖向滑动浏览、逐个视频播放进度记忆续播、暂停/音量
 - **音频区**：自建专辑/剧集管理、分栏布局、后台播放、倍速、上下集、每集进度与上次剧集记忆
 - **纯本地**：无 `INTERNET` 权限、无网络请求代码，播放进度与专辑全部存于本机 SQLite
 - 安卓 APK 约 7.5MB（按 ABI 拆分），iOS 安装包约 24MB（未签名）

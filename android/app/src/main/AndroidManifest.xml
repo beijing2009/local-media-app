@@ -1,7 +1,25 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="com.example.workspace">
-   <application
-        android:label="workspace"
+
+    <!-- ================= 权限声明 ================= -->
+    <!-- 本项目为纯本地应用：不声明 INTERNET 权限，也不含任何网络请求代码。 -->
+    <!-- 读取本机媒体文件（Android 12 及以下） -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <!-- 仅在 Android 9 及以下需要写入；10+ 用分区存储与 MediaStore -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"/>
+    <!-- Android 13+ 细粒度媒体权限 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
+    <!-- 「所有文件访问」：用于全盘扫描（自用侧载场景，不上架商店） -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage"/>
+
+    <!-- 仅在支持分区存储的设备上启用（默认 true），保持对旧版系统的兼容 -->
+    <application
+        android:requestLegacyExternalStorage="true"
+        android:label="本地影音"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
