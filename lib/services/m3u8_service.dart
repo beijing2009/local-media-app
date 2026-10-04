@@ -213,6 +213,9 @@ class M3u8Service {
       seq++;
     }
 
+    // 第二阶段兜底：分片被下载器重命名成无扩展名哈希名时，按修改时间映射
+    _fallbackMapByMtime(baseDir, segments);
+
     int bytes = 0;
     for (final s in segments) {
       if (s.missing) continue;
@@ -233,24 +236,46 @@ class M3u8Service {
   }
 
   /// 把 URI 解析成本机已存在的文件路径（多种常见缓存布局都尝试）。
+  ///
+  /// 兼容：
+  ///  - 相对路径 / 绝对路径 / 仅基名
+  ///  - `%` 编码路径（空格 / 中文 / 完整网址被编码）
+  ///  - **扩展名变体**：不少下载器把分片存成无扩展名的哈希文件名
+  ///    （如 `e04d87b5...`），而播放列表里写的是 `e04d87b5....ts` 或完整网址；
+  ///    反之亦然。此处对「带 / 不带 `.ts`」两种形态互试。
   static String? _resolveLocal(String baseDir, String uri) {
     final u = uri.split('?').first.split('#').first;
-    final candidates = <String>[
-      u,
-      p.join(baseDir, u),
-      p.join(baseDir, p.basename(u)),
-    ];
-    // 兼容 % 编码的路径（部分下载器会把空格 / 中文转成 %xx）
+
+    // 生成同一文件的多种可能命名（去重保序：先精确后变体）
+    final names = <String>{};
+    void addName(String n) {
+      if (n.isEmpty) return;
+      names.add(n);
+      final dot = n.lastIndexOf('.');
+      if (dot > 0) {
+        names.add(n.substring(0, dot)); // 去扩展名
+        names.add('${n.substring(0, dot)}.ts'); // 换成 .ts
+      } else {
+        names.add('$n.ts'); // 补 .ts
+      }
+    }
+
+    addName(u);
+    addName(p.basename(u));
     if (u.contains('%')) {
       final decoded = _tryDecode(u);
       if (decoded != u) {
-        candidates.addAll([decoded, p.join(baseDir, decoded)]);
+        addName(decoded);
+        addName(p.basename(decoded));
       }
     }
-    for (final c in candidates) {
-      try {
-        if (c.isNotEmpty && File(c).existsSync()) return c;
-      } catch (_) {}
+
+    for (final n in names) {
+      for (final c in <String>[n, p.join(baseDir, n)]) {
+        try {
+          if (File(c).existsSync()) return c;
+        } catch (_) {}
+      }
     }
     return null;
   }
@@ -260,6 +285,77 @@ class M3u8Service {
       return Uri.decodeComponent(s);
     } catch (_) {
       return s;
+    }
+  }
+
+  /// 兜底映射时要排除的「非分片文件」扩展名（列表 / 密钥 / 元数据 / 图片字幕等）。
+  static const Set<String> _nonSegmentExts = <String>{
+    'm3u8', 'm3u', 'key', 'json', 'txt', 'html', 'xml', 'ini', 'log', 'url',
+    'jpg', 'jpeg', 'png', 'webp', 'gif', 'srt', 'ass', 'ssa', 'vtt', 'nfo',
+  };
+
+  /// 第二阶段兜底：下载器缓存目录常把分片**重命名成无扩展名的哈希文件**
+  /// （如 `Downloader/<哈希>/e04d87b5...` + `local.m3u8`），名字与播放列表里的
+  /// URI 完全对不上。此类下载器按播放顺序依次下载落盘，因此
+  /// **文件修改时间顺序 == 播放顺序**。
+  ///
+  /// 规则（宁缺勿错，绝不联网）：
+  ///  - 仅当「目录内剩余候选文件数 == 未解析分片数」时才映射；
+  ///  - 候选文件排除列表 / 密钥 / 图片 / 字幕等（见 [_nonSegmentExts]），
+  ///    以及已按名称解析成功的文件；
+  ///  - 候选按修改时间升序（平局按文件名）与未解析分片按播放顺序一一对应。
+  static void _fallbackMapByMtime(String baseDir, List<M3u8Segment> segments) {
+    final unresolved = <int>[];
+    final used = <String>{};
+    for (var i = 0; i < segments.length; i++) {
+      final s = segments[i];
+      if (s.missing) {
+        unresolved.add(i);
+      } else {
+        used.add(s.localPath);
+      }
+    }
+    if (unresolved.isEmpty || baseDir.isEmpty) return;
+
+    List<FileSystemEntity> entries;
+    try {
+      entries = Directory(baseDir).listSync(followLinks: false);
+    } catch (_) {
+      return;
+    }
+    final candidates = <File>[];
+    for (final e in entries) {
+      if (e is! File) continue;
+      final ext = p.extension(e.path).replaceFirst('.', '').toLowerCase();
+      if (_nonSegmentExts.contains(ext)) continue;
+      if (used.contains(e.path)) continue;
+      candidates.add(e);
+    }
+    // 数量对不上（有缺失 / 有多余文件）时不能乱猜，保持「缺失」原状
+    if (candidates.length != unresolved.length) return;
+
+    int mtime(File f) {
+      try {
+        return f.lastModifiedSync().millisecondsSinceEpoch;
+      } catch (_) {
+        return 0;
+      }
+    }
+
+    candidates.sort((a, b) {
+      final c = mtime(a).compareTo(mtime(b));
+      if (c != 0) return c;
+      return a.path.toLowerCase().compareTo(b.path.toLowerCase());
+    });
+    for (var k = 0; k < unresolved.length; k++) {
+      final idx = unresolved[k];
+      segments[idx] = M3u8Segment(
+        localPath: candidates[k].path,
+        missing: false,
+        keyPath: segments[idx].keyPath,
+        keyIvHex: segments[idx].keyIvHex,
+        sequence: segments[idx].sequence,
+      );
     }
   }
 

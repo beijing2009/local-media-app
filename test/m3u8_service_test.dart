@@ -313,6 +313,87 @@ void main() {
     expect(r.error, isNull);
     expect(File(p.join(out.path, 'index.ts')).readAsBytesSync(), expected);
   });
+
+  test('⑬ 无扩展名哈希分片：URI 带 .ts 后缀也能对上本机文件', () async {
+    // 模拟下载器缓存：分片被存成无扩展名的十六进制名，local.m3u8 里写 xxx.ts
+    final dir = Directory(p.join(_root.path, 'noext'))..createSync();
+    final names = <String>[
+      'e04d87b55647e4bdba63d5c6b71652fb',
+      'f2bef1af5902fcd4713d6d7c49eef712',
+    ];
+    final expected = <int>[];
+    for (var i = 0; i < names.length; i++) {
+      final bytes = _randBytes(800 + i * 33);
+      File(p.join(dir.path, names[i])).writeAsBytesSync(bytes);
+      expected.addAll(bytes);
+    }
+    final m3u = File(p.join(dir.path, 'local.m3u8'))
+      ..writeAsStringSync('#EXTM3U\n'
+          '${names[0]}.ts\n'
+          '${names[1]}.ts\n');
+
+    final info = M3u8Service.parse(m3u.path);
+    expect(info.missingCount, 0, reason: '扩展名变体匹配应命中无后缀分片');
+
+    final out = Directory(p.join(_root.path, 'out'))..createSync();
+    final r = await M3u8Service.mergeOne(info,
+        outputDir: out.path, useOriginalName: true);
+    expect(r.error, isNull);
+    expect(r.merged, 2);
+    expect(File(p.join(out.path, 'local.ts')).readAsBytesSync(), expected);
+  });
+
+  test('⑭ 下载器哈希目录：URI 与本地文件名完全对不上时，按修改时间顺序兜底映射',
+      () async {
+    // 模拟：分片名为无意义哈希、播放列表里是原始网址（本机不存在同名文件）。
+    // 下载器按播放顺序落盘 → 修改时间顺序 == 播放顺序。
+    final dir = Directory(p.join(_root.path, 'hashdir'))..createSync();
+    final hashNames = <String>['aabb001f', 'ccdd002e', 'eeff003d'];
+    final expected = <int>[];
+    final baseMs = DateTime.now().millisecondsSinceEpoch - 100000;
+    for (var i = 0; i < hashNames.length; i++) {
+      final bytes = _randBytes(700 + i * 11);
+      final f = File(p.join(dir.path, hashNames[i]))..writeAsBytesSync(bytes);
+      // 显式设置互不相同的修改时间，保证确定性
+      f.setLastModifiedSync(
+          DateTime.fromMillisecondsSinceEpoch(baseMs + i * 1000));
+      expected.addAll(bytes);
+    }
+    final m3u = File(p.join(dir.path, 'local.m3u8'))
+      ..writeAsStringSync('#EXTM3U\n'
+          'https://cdn.example.com/v1/seg0.ts?sign=abc\n'
+          'https://cdn.example.com/v1/seg1.ts?sign=abc\n'
+          'https://cdn.example.com/v1/seg2.ts?sign=abc\n');
+
+    final info = M3u8Service.parse(m3u.path);
+    expect(info.missingCount, 0, reason: '数量一致时应按修改时间映射成功');
+
+    final out = Directory(p.join(_root.path, 'out'))..createSync();
+    final r = await M3u8Service.mergeOne(info,
+        outputDir: out.path, useOriginalName: true);
+    expect(r.error, isNull);
+    expect(r.merged, 3);
+    // 合并顺序必须等于播放顺序（即修改时间顺序），而非文件名字典序
+    expect(File(p.join(out.path, 'local.ts')).readAsBytesSync(), expected);
+  });
+
+  test('⑮ 兜底不乱猜：候选数量对不上不映射；列表/密钥/图片/元数据不当分片',
+      () async {
+    final dir = Directory(p.join(_root.path, 'mismatch'))..createSync();
+    File(p.join(dir.path, 'seg0.ts')).writeAsBytesSync(_randBytes(400));
+    // 两个无扩展名哈希文件，但只缺 1 个分片 → 数量不一致，禁止映射
+    File(p.join(dir.path, 'aaaa1111')).writeAsBytesSync(_randBytes(300));
+    File(p.join(dir.path, 'bbbb2222')).writeAsBytesSync(_randBytes(300));
+    // 非分片文件必须被排除出候选
+    File(p.join(dir.path, 'cover.jpg')).writeAsBytesSync(_randBytes(50));
+    File(p.join(dir.path, 'info.json')).writeAsBytesSync(_randBytes(20));
+    final m3u = File(p.join(dir.path, 'local.m3u8'))
+      ..writeAsStringSync('#EXTM3U\nseg0.ts\nnot_exist_seg.ts\n');
+
+    final info = M3u8Service.parse(m3u.path);
+    expect(info.missingCount, 1,
+        reason: '候选(2) != 缺失(1) 时应保持缺失，不能拿哈希文件乱凑');
+  });
 }
 
 /// 生成固定种子的随机字节，保证可复现（同时避免被 R8/压缩误判为常量）
